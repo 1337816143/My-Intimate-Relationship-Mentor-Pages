@@ -1,0 +1,58 @@
+name: Deploy encrypted site to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Verify public repository contains no obvious plaintext source
+        shell: bash
+        run: |
+          set -euo pipefail
+          forbidden=$(find . -type f \
+            ! -path './.git/*' \
+            ! -path './.github/*' \
+            \( -name '*.md' -o -name '*.txt' -o -name '*.csv' -o -name '*.json' \) \
+            ! -path './README.md' \
+            ! -path './SECURITY.md' \
+            ! -path './assets/private-content.enc.json' \
+            -print)
+          if [[ -n "$forbidden" ]]; then
+            echo "Unexpected text/data files found:"
+            echo "$forbidden"
+            exit 1
+          fi
+          if [[ -f assets/private-content.enc.json ]]; then
+            node -e "const p=require('./assets/private-content.enc.json'); if(p.version!==1||p.algorithm!=='AES-256-GCM'||typeof p.ciphertext!=='string') process.exit(1)"
+          fi
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: .
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
