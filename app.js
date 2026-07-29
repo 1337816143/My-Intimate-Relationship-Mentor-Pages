@@ -2,6 +2,7 @@
 
 const PAYLOAD_URL = new URL("./assets/private-content.enc.json", document.baseURI);
 const LOCK_AFTER_MS = 30 * 60 * 1000;
+const FRAME_LOAD_TIMEOUT_MS = 10000;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -16,6 +17,7 @@ const status = document.querySelector("#status");
 const frame = document.querySelector("#app-frame");
 
 let lockTimer = null;
+let frameLoadTimer = null;
 let unlocked = false;
 
 function setStatus(message, kind = "") {
@@ -101,21 +103,63 @@ function resetLockTimer() {
   lockTimer = setTimeout(() => lock("已因 30 分钟无操作而自动锁定。"), LOCK_AFTER_MS);
 }
 
-function showUnlocked(html) {
+function failFrameLoad(message) {
+  clearTimeout(frameLoadTimer);
+  frameLoadTimer = null;
+  frame.onload = null;
+  frame.srcdoc = "<!doctype html><meta charset='utf-8'><title>载入失败</title>";
+  unlocked = false;
+  viewer.hidden = true;
+  gate.hidden = false;
+  setStatus(message, "error");
+  setBusy(false);
+  passwordInput.focus();
+}
+
+function finishUnlocked() {
+  clearTimeout(frameLoadTimer);
+  frameLoadTimer = null;
+  frame.onload = null;
   unlocked = true;
-  frame.srcdoc = html;
   gate.hidden = true;
   viewer.hidden = false;
   document.title = "亲密关系成长中心";
   passwordInput.value = "";
+  setBusy(false);
   resetLockTimer();
   window.scrollTo({ top: 0, behavior: "auto" });
+}
+
+function showUnlocked(html) {
+  setStatus("密码正确，正在启动已解密的网站…", "working");
+
+  frame.onload = () => {
+    try {
+      const innerDocument = frame.contentDocument;
+      const appRoot = innerDocument?.querySelector("#app");
+      const rendered = Boolean(appRoot && (appRoot.childElementCount > 0 || appRoot.textContent.trim().length > 0));
+      if (!rendered) throw new Error("DECRYPTED_APP_NOT_RENDERED");
+      finishUnlocked();
+    } catch (error) {
+      console.error("Decrypted frame failed to initialize", error instanceof Error ? error.message : "unknown");
+      failFrameLoad("内容已经成功解密，但页面脚本未能启动。请刷新后重试；若仍出现，请查看最新部署状态。");
+    }
+  };
+
+  frameLoadTimer = setTimeout(() => {
+    failFrameLoad("内容已经成功解密，但页面载入超时。请刷新后重试。");
+  }, FRAME_LOAD_TIMEOUT_MS);
+
+  frame.srcdoc = html;
 }
 
 function lock(message = "内容已锁定。") {
   unlocked = false;
   clearTimeout(lockTimer);
+  clearTimeout(frameLoadTimer);
   lockTimer = null;
+  frameLoadTimer = null;
+  frame.onload = null;
   frame.srcdoc = "<!doctype html><meta charset='utf-8'><title>已锁定</title>";
   viewer.hidden = true;
   gate.hidden = false;
@@ -124,6 +168,7 @@ function lock(message = "内容已锁定。") {
   passwordInput.type = "password";
   togglePasswordButton.textContent = "显示";
   togglePasswordButton.setAttribute("aria-label", "显示密码");
+  setBusy(false);
   setStatus(message);
   passwordInput.focus();
 }
@@ -150,9 +195,8 @@ form.addEventListener("submit", async (event) => {
     } else {
       setStatus("无法读取或解密内容包，请稍后重试。", "error");
     }
-    passwordInput.select();
-  } finally {
     setBusy(false);
+    passwordInput.select();
   }
 });
 
@@ -176,5 +220,7 @@ for (const eventName of ["pointerdown", "keydown", "touchstart", "scroll"]) {
 
 window.addEventListener("pagehide", () => {
   clearTimeout(lockTimer);
+  clearTimeout(frameLoadTimer);
+  frame.onload = null;
   frame.srcdoc = "";
 });

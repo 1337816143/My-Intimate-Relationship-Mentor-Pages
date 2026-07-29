@@ -1,0 +1,38 @@
+name: Test decrypted iframe rendering
+
+on:
+  pull_request:
+    paths:
+      - "index.html"
+      - "app.js"
+      - "styles.css"
+      - "scripts/create-frame-smoke-payload.mjs"
+      - "scripts/test-decrypted-frame.mjs"
+      - ".github/workflows/test-decrypted-frame.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout public Pages shell
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Chromium test runtime
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Create non-private encrypted fixture
+        run: node scripts/create-frame-smoke-payload.mjs
+
+      - name: Unlock and verify rendered iframe in Chromium
+        run: node scripts/test-decrypted-frame.mjs
