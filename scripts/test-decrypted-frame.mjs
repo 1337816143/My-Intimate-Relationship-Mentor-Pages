@@ -10,6 +10,10 @@ function stopServer() {
   if (!server.killed) server.kill("SIGTERM");
 }
 
+function isBenignMetaCspWarning(message) {
+  return message.includes("The Content Security Policy directive 'frame-ancestors' is ignored when delivered via a <meta> element");
+}
+
 process.on("exit", stopServer);
 process.on("SIGINT", () => { stopServer(); process.exit(130); });
 process.on("SIGTERM", () => { stopServer(); process.exit(143); });
@@ -32,7 +36,8 @@ try {
   const page = await browser.newPage();
   const consoleErrors = [];
   page.on("console", message => {
-    if (message.type() === "error") consoleErrors.push(message.text());
+    const text = message.text();
+    if (message.type() === "error" && !isBenignMetaCspWarning(text)) consoleErrors.push(text);
   });
   page.on("pageerror", error => consoleErrors.push(error.message));
 
